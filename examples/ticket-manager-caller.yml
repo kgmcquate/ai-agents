@@ -1,0 +1,23 @@
+# Copy this file to .github/workflows/ticket-manager.yml in any repo you want managed.
+#
+# Required secrets (set in the repo's Settings → Secrets):
+#   GH_PAT           — personal access token with scopes: repo, project
+#   ANTHROPIC_API_KEY — Anthropic API key
+
+name: Ticket Manager
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  run:
+    uses: kevinmcquate/ai-agents/.github/workflows/ticket-manager.yml@main
+    with:
+      project_number: 1
+      # Optional — defaults to: api,auth,frontend,backend,database,infra,config
+      areas: "api,auth,frontend,backend,database,infra,config"
+    secrets:
+      GH_PAT: ${{ secrets.GH_PAT }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

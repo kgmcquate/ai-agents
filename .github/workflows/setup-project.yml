@@ -1,0 +1,41 @@
+name: Setup Ticket Manager Project
+
+on:
+  workflow_call:
+    inputs:
+      project_title:
+        description: 'Name for the GitHub Projects v2 board'
+        required: true
+        type: string
+    secrets:
+      GH_PAT:
+        required: true
+  workflow_dispatch:
+    inputs:
+      project_title:
+        description: 'Name for the GitHub Projects v2 board'
+        required: true
+        type: string
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ticket manager
+        uses: actions/checkout@v4
+        with:
+          repository: kevinmcquate/ai-agents
+          token: ${{ secrets.GH_PAT }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install -r requirements.txt
+
+      - name: Create / verify project board
+        run: python scripts/setup_project.py --title "${{ inputs.project_title }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          REPO_NAME: ${{ github.event.repository.name }}

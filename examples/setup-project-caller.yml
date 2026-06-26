@@ -1,0 +1,26 @@
+# Run this ONCE before enabling the ticket manager:
+#   GitHub → Actions → Setup Ticket Manager Project → Run workflow
+#
+# It will create the project board (if it doesn't exist), configure the
+# Status columns, and print the project_number to put in your
+# ticket-manager-caller.yml.
+#
+# Required secret: GH_PAT (repo + project scopes)
+
+name: Setup Ticket Manager Project
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_title:
+        description: 'Name for the project board (e.g. "My Repo Tasks")'
+        required: true
+        type: string
+
+jobs:
+  setup:
+    uses: kevinmcquate/ai-agents/.github/workflows/setup-project.yml@main
+    with:
+      project_title: ${{ inputs.project_title }}
+    secrets:
+      GH_PAT: ${{ secrets.GH_PAT }}

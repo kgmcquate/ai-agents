@@ -1,0 +1,30 @@
+# Copy this file to .github/workflows/worker-agent.yml in any repo you want managed.
+#
+# Required secrets (Settings → Secrets and variables → Actions):
+#   GH_PROJECTS_TOKEN  — personal access token with scopes: repo, project
+#   ANTHROPIC_API_KEY  — Anthropic API key
+#
+# Optional: add a CLAUDE.md at your repo root with coding standards, test conventions,
+# and any project-specific instructions. The agent reads it automatically.
+
+name: Worker Agent
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # poll every 15 minutes
+  workflow_dispatch:          # allow manual trigger from the Actions tab
+
+jobs:
+  run:
+    uses: kgmcquate/ai-agents/.github/workflows/worker-agent.yml@main
+    with:
+      project_number: 1
+      # Optional — defaults to: api,auth,frontend,backend,database,infra,config
+      areas: "api,auth,frontend,backend,database,infra,config"
+      # Optional — set to your test command so the wrapper verifies tests pass before opening the PR.
+      # Leave blank to rely on the agent's own test-running (and your CI on the PR).
+      # test_command: "pytest"
+      # test_command: "npm test"
+    secrets:
+      GH_PROJECTS_TOKEN: ${{ secrets.GH_PROJECTS_TOKEN }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

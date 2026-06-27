@@ -8,7 +8,7 @@ on:
         required: true
         type: string
     secrets:
-      GITHUB_PROJECTS_TOKEN:
+      GH_PROJECTS_TOKEN:
         required: true
   workflow_dispatch:
     inputs:
@@ -36,6 +36,6 @@ jobs:
       - name: Create / verify project board
         run: python scripts/setup_project.py --title "${{ inputs.project_title }}"
         env:
-          GITHUB_PROJECTS_TOKEN: ${{ secrets.GITHUB_PROJECTS_TOKEN }}
+          GH_PROJECTS_TOKEN: ${{ secrets.GH_PROJECTS_TOKEN }}
           REPO_OWNER: ${{ github.repository_owner }}
           REPO_NAME: ${{ github.event.repository.name }}

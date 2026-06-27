@@ -23,4 +23,4 @@ jobs:
     with:
       project_title: ${{ inputs.project_title }}
     secrets:
-      GITHUB_PROJECTS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_PROJECTS_TOKEN: ${{ secrets.GH_PROJECTS_TOKEN }}

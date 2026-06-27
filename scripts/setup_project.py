@@ -127,9 +127,8 @@ def configure_status_columns(project_id: str, field_id: str):
     options = [{"name": name, "color": color, "description": ""} for name, color in REQUIRED_COLUMNS]
     graphql(
         """
-        mutation($projectId: ID!, $fieldId: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
+        mutation($fieldId: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
           updateProjectV2Field(input: {
-            projectId: $projectId
             fieldId: $fieldId
             name: "Status"
             singleSelectOptions: $options
@@ -140,7 +139,7 @@ def configure_status_columns(project_id: str, field_id: str):
           }
         }
         """,
-        {"projectId": project_id, "fieldId": field_id, "options": options},
+        {"fieldId": field_id, "options": options},
     )
 
 

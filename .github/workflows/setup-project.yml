@@ -7,9 +7,6 @@ on:
         description: 'Name for the GitHub Projects v2 board'
         required: true
         type: string
-    secrets:
-      GITHUB_TOKEN:
-        required: true
   workflow_dispatch:
     inputs:
       project_title:

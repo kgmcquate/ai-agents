@@ -13,8 +13,6 @@ on:
         default: 'api,auth,frontend,backend,database,infra,config'
         type: string
     secrets:
-      GH_PAT:
-        required: true
       ANTHROPIC_API_KEY:
         required: true
   workflow_dispatch:

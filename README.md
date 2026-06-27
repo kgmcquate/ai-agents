@@ -76,7 +76,7 @@ Copy [`examples/ticket-manager-caller.yml`](examples/ticket-manager-caller.yml) 
 ```yaml
 jobs:
   run:
-    uses: kevinmcquate/ai-agents/.github/workflows/ticket-manager.yml@main
+    uses: kgmcquate/ai-agents/.github/workflows/ticket-manager.yml@main
     with:
       project_number: 3          # from step 1 output
       areas: "api,auth,frontend" # optional — customize for your codebase

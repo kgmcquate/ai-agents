@@ -19,7 +19,7 @@ on:
 
 jobs:
   setup:
-    uses: kevinmcquate/ai-agents/.github/workflows/setup-project.yml@main
+    uses: kgmcquate/ai-agents/.github/workflows/setup-project.yml@main
     with:
       project_title: ${{ inputs.project_title }}
     secrets:

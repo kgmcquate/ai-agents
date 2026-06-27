@@ -31,7 +31,7 @@ jobs:
       - name: Checkout ticket manager
         uses: actions/checkout@v4
         with:
-          repository: kevinmcquate/ai-agents
+          repository: kgmcquate/ai-agents
           path: _ticket_manager
 
       - uses: actions/setup-python@v5

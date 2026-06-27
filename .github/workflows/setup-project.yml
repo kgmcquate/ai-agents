@@ -24,7 +24,7 @@ jobs:
       - name: Checkout ticket manager
         uses: actions/checkout@v4
         with:
-          repository: kevinmcquate/ai-agents
+          repository: kgmcquate/ai-agents
           token: ${{ secrets.GH_PAT }}
 
       - uses: actions/setup-python@v5

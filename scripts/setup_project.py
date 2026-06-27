@@ -10,7 +10,7 @@ import sys
 import argparse
 import requests
 
-GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
+GITHUB_TOKEN = os.environ["GH_PROJECTS_TOKEN"]
 REPO_OWNER   = os.environ["REPO_OWNER"]
 REPO_NAME    = os.environ["REPO_NAME"]
 

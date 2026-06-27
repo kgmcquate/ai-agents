@@ -19,5 +19,5 @@ jobs:
       # Optional — defaults to: api,auth,frontend,backend,database,infra,config
       areas: "api,auth,frontend,backend,database,infra,config"
     secrets:
-      GH_PAT: ${{ secrets.GH_PAT }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

@@ -8,7 +8,7 @@ on:
         required: true
         type: string
     secrets:
-      GH_PAT:
+      GITHUB_TOKEN:
         required: true
   workflow_dispatch:
     inputs:

@@ -251,7 +251,7 @@ def _handle_success(ticket: dict, branch: str, meta: dict, col: dict):
         f"**Implementation complete.** PR: {pr_url}\n\n"
         f"Moved to **Ready for Review**."
     ))
-    print(f"  Worker {WORKER_ID}: Done — {pr_url}")
+    print(f"  Worker {WORKER_ID}: Done — {pr_url}", flush=True)
 
 
 def _handle_failure(ticket: dict, meta: dict, col: dict, reason: str):
@@ -266,7 +266,7 @@ def _handle_failure(ticket: dict, meta: dict, col: dict, reason: str):
         f"Moved to **Blocked**. Human review needed.\n"
         f"[View run logs]({ACTIONS_RUN_URL})"
     ))
-    print(f"  Worker {WORKER_ID}: Failed — {reason}")
+    print(f"  Worker {WORKER_ID}: Failed — {reason}", flush=True)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -293,7 +293,7 @@ def main():
 
     ready = get_items_in_column(col["ready_for_agent"], meta)
     if not ready:
-        print(f"Worker {WORKER_ID}: No tickets ready.")
+        print(f"Worker {WORKER_ID}: No tickets ready.", flush=True)
         return
 
     # Try to claim the first unclaimed ticket.
@@ -304,11 +304,11 @@ def main():
             break
 
     if not ticket:
-        print(f"Worker {WORKER_ID}: Could not claim any ticket (all taken).")
+        print(f"Worker {WORKER_ID}: Could not claim any ticket (all taken).", flush=True)
         return
 
     n = ticket["issue_number"]
-    print(f"Worker {WORKER_ID}: Claimed #{n}: {ticket['title']}")
+    print(f"Worker {WORKER_ID}: Claimed #{n}: {ticket['title']}", flush=True)
 
     # Create branch and post the claim comment.
     branch = _create_branch(ticket)
@@ -322,10 +322,10 @@ def main():
 
     # Determine budget from ticket size label.
     cfg = _size_config(ticket["labels"])
-    print(f"  Budget: {cfg['loc_budget']} LOC, {cfg['max_turns']} turns")
+    print(f"  Budget: {cfg['loc_budget']} LOC, {cfg['max_turns']} turns", flush=True)
 
     # Run the Claude Code agent.
-    print(f"  Running Claude Code (max_turns={cfg['max_turns']})...")
+    print(f"  Running Claude Code (max_turns={cfg['max_turns']})...", flush=True)
     agent_ok = _run_claude(_build_prompt(ticket, branch, cfg), cfg["max_turns"])
 
     # Evaluate outcome.

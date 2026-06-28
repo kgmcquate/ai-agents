@@ -111,31 +111,14 @@ def _gh(args: list[str], check: bool = False) -> subprocess.CompletedProcess:
     return result
 
 
-def _default_branch() -> str:
-    """Ask GitHub for the repo's default branch rather than assuming 'main'."""
+def _find_pr_url(branch: str) -> str:
+    """Return the URL of the PR the agent opened for this branch, or '' if none exists."""
     result = _gh([
-        "repo", "view", f"{REPO_OWNER}/{REPO_NAME}",
-        "--json", "defaultBranchRef",
-        "--jq", ".defaultBranchRef.name",
-    ])
-    return result.stdout.strip() or "main"
-
-
-def _open_draft_pr(ticket: dict, branch: str) -> str:
-    """Open a draft PR immediately so partial work is visible. Returns the PR URL or ''."""
-    base = _default_branch()
-    result = _gh([
-        "pr", "create",
-        "--draft",
+        "pr", "list",
         "--repo", f"{REPO_OWNER}/{REPO_NAME}",
-        "--title", f"#{ticket['issue_number']}: {ticket['title']}",
-        "--body", (
-            f"Closes #{ticket['issue_number']}\n\n"
-            f"Implemented by Worker Agent {WORKER_ID}.\n\n"
-            f"[View run logs]({ACTIONS_RUN_URL})"
-        ),
         "--head", branch,
-        "--base", base,
+        "--json", "url",
+        "--jq", ".[0].url",
     ])
     return result.stdout.strip()
 
@@ -195,7 +178,15 @@ Description:
    git push origin {branch}
    ```
 
-5. **Post a comment** summarising your test plan:
+5. **Open a draft PR** so progress is visible as you work:
+   ```
+   gh pr create --draft \
+     --repo {REPO_OWNER}/{REPO_NAME} \
+     --title "#{ticket['issue_number']}: {ticket['title'][:60]}" \
+     --body "Closes #{ticket['issue_number']}\n\nImplemented by Worker Agent {WORKER_ID}.\n\n[View run logs]({ACTIONS_RUN_URL})"
+   ```
+
+6. **Post a comment** summarising your test plan:
    ```
    gh issue comment {ticket['issue_number']} --repo {REPO_OWNER}/{REPO_NAME} \
 --body "{_AGENT_MARKER}
@@ -204,16 +195,16 @@ Description:
 <brief summary of what the tests cover>"
    ```
 
-6. **Check your LOC budget** — run `git diff origin/{branch} --shortstat`.
+7. **Check your LOC budget** — run `git diff origin/{branch} --shortstat`.
    If lines changed already exceed **{cfg['loc_budget']}**, stop and call for help (see below).
 
-7. **Implement** the code until all tests pass. Run the test suite frequently.
+8. **Implement** the code until all tests pass. Run the test suite frequently.
 
-8. **Update documentation** for any public functions, classes, or API endpoints you add or modify.
+9. **Update documentation** for any public functions, classes, or API endpoints you add or modify.
 
-9. **Run the full test suite** one final time and confirm it is green.
+10. **Run the full test suite** one final time and confirm it is green.
 
-10. **Commit and push everything**:
+11. **Commit and push everything**:
     ```
     git add -A && git commit -m "feat: #{ticket['issue_number']} {ticket['title'][:60]}"
     git push origin {branch}
@@ -371,21 +362,15 @@ def main():
     n = ticket["issue_number"]
     print(f"Worker {WORKER_ID}: Claimed #{n}: {ticket['title']}", flush=True)
 
-    # Create the branch (pushed to remote so the draft PR can be opened).
+    # Create the branch and push it so the agent can commit to it immediately.
     branch = _create_branch(ticket)
-
-    # Open a draft PR immediately — partial commits will be visible here as the agent works.
-    print(f"  Opening draft PR...", flush=True)
-    pr_url = _open_draft_pr(ticket, branch)
-    print(f"  Draft PR: {pr_url}", flush=True)
 
     add_comment(n, (
         f"{_AGENT_MARKER}\n"
         f"Picked up by **Worker Agent {WORKER_ID}**.\n\n"
         f"- Branch: `{branch}`\n"
-        f"- Draft PR: {pr_url}\n"
         f"- [View run logs]({ACTIONS_RUN_URL})\n\n"
-        f"Working on: tests → implementation → PR ready for review."
+        f"Working on: tests → draft PR → implementation → PR ready for review."
     ))
 
     # Determine budget from ticket size label.
@@ -402,6 +387,10 @@ def main():
     # Run the Claude Code agent.
     print(f"  Running Claude Code (max_turns={cfg['max_turns']})...", flush=True)
     agent_ok = _run_claude(_build_prompt(ticket, branch, cfg), cfg["max_turns"])
+
+    # Retrieve the draft PR URL the agent opened (may be empty if it stopped before that step).
+    pr_url = _find_pr_url(branch)
+    print(f"  PR: {pr_url or '(none)'}", flush=True)
 
     # Evaluate outcome.
     if _agent_asked_for_help(n):

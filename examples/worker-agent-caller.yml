@@ -9,6 +9,12 @@
 
 name: Worker Agent
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  repository-projects: write
+
 on:
   schedule:
     - cron: '*/15 * * * *'   # poll every 15 minutes
@@ -26,5 +32,5 @@ jobs:
       # test_command: "pytest"
       # test_command: "npm test"
     secrets:
-      GH_PROJECTS_TOKEN: ${{ secrets.GH_PROJECTS_TOKEN }}
+      GH_PROJECTS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

@@ -76,7 +76,7 @@ jobs:
           git config --global user.email "worker-agent@users.noreply.github.com"
 
       - name: Run worker agent
-        run: python _worker/scripts/worker_agent.py
+        run: python -u _worker/scripts/worker_agent.py
         env:
           GH_PROJECTS_TOKEN:  ${{ secrets.GH_PROJECTS_TOKEN }}
           GH_TOKEN:           ${{ secrets.GH_PROJECTS_TOKEN }}
@@ -89,3 +89,6 @@ jobs:
           TARGET_REPO_DIR:    ${{ github.workspace }}/target_repo
           TEST_COMMAND:       ${{ inputs.test_command }}
           ACTIONS_RUN_URL:    ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # Force Python and Claude to flush output immediately so logs stream in real time.
+          PYTHONUNBUFFERED:   "1"
+          NO_COLOR:           "1"

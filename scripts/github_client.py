@@ -66,16 +66,28 @@ def _load_existing_labels():
     global _existing_labels
     if _existing_labels is not None:
         return
-    labels = rest("GET", f"/repos/{REPO_OWNER}/{REPO_NAME}/labels", params={"per_page": 100})
-    _existing_labels = {l["name"] for l in labels}
+    _existing_labels = set()
+    page = 1
+    while True:
+        batch = rest("GET", f"/repos/{REPO_OWNER}/{REPO_NAME}/labels",
+                     params={"per_page": 100, "page": page})
+        _existing_labels.update(l["name"] for l in batch)
+        if len(batch) < 100:
+            break
+        page += 1
 
 
 def ensure_labels(names: list[str]):
     _load_existing_labels()
     for name in names:
         if name not in _existing_labels:
-            rest("POST", f"/repos/{REPO_OWNER}/{REPO_NAME}/labels",
-                 json={"name": name, "color": _color_for(name)})
+            try:
+                rest("POST", f"/repos/{REPO_OWNER}/{REPO_NAME}/labels",
+                     json={"name": name, "color": _color_for(name)})
+            except requests.HTTPError as e:
+                if e.response.status_code != 422:
+                    raise
+                # 422 = label already exists (created by a concurrent run or previous job)
             _existing_labels.add(name)
 
 

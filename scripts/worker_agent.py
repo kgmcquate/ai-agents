@@ -93,6 +93,40 @@ def _claim(item: dict, meta: dict, col: dict) -> bool:
     return True
 
 
+# ── Draft PR helpers ──────────────────────────────────────────────────────────
+
+def _gh(args: list[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["gh"] + args,
+        cwd=TARGET_REPO_DIR,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "GH_TOKEN": os.environ["GH_PROJECTS_TOKEN"]},
+    )
+
+
+def _open_draft_pr(ticket: dict, branch: str) -> str:
+    """Open a draft PR immediately so partial work is visible. Returns the PR URL."""
+    result = _gh([
+        "pr", "create",
+        "--draft",
+        "--title", f"#{ticket['issue_number']}: {ticket['title']}",
+        "--body", (
+            f"Closes #{ticket['issue_number']}\n\n"
+            f"Implemented by Worker Agent {WORKER_ID}.\n\n"
+            f"[View run logs]({ACTIONS_RUN_URL})"
+        ),
+        "--head", branch,
+        "--base", "main",
+    ])
+    return result.stdout.strip()
+
+
+def _mark_pr_ready(pr_url: str):
+    """Promote a draft PR to ready-for-review."""
+    _gh(["pr", "ready", pr_url])
+
+
 # ── Agent prompt ──────────────────────────────────────────────────────────────
 
 def _build_prompt(ticket: dict, branch: str, cfg: dict) -> str:
@@ -118,9 +152,10 @@ Description:
 
 3. **Write tests first** (TDD). The tests should fail at this point — no implementation yet.
 
-4. **Commit the tests**:
+4. **Commit and push the tests**:
    ```
    git add -A && git commit -m "test: #{ticket['issue_number']} add failing tests"
+   git push origin {branch}
    ```
 
 5. **Post a comment** summarising your test plan:
@@ -132,7 +167,7 @@ Description:
 <brief summary of what the tests cover>"
    ```
 
-6. **Check your LOC budget** — run `git diff origin/HEAD --shortstat`.
+6. **Check your LOC budget** — run `git diff origin/{branch} --shortstat`.
    If lines changed already exceed **{cfg['loc_budget']}**, stop and call for help (see below).
 
 7. **Implement** the code until all tests pass. Run the test suite frequently.
@@ -141,9 +176,10 @@ Description:
 
 9. **Run the full test suite** one final time and confirm it is green.
 
-10. **Commit everything**:
+10. **Commit and push everything**:
     ```
     git add -A && git commit -m "feat: #{ticket['issue_number']} {ticket['title'][:60]}"
+    git push origin {branch}
     ```
 
 ## Calling for help
@@ -165,8 +201,8 @@ Situations that require calling for help:
 
 ## Constraints
 
-- You are on branch `{branch}`. Do NOT push — the workflow handles pushing and opening the PR.
-- Do NOT open a PR — the workflow handles it.
+- You are on branch `{branch}`. Push after every commit so progress is visible in the draft PR.
+- Do NOT open or close a PR — the workflow handles it.
 - Do NOT move the ticket on the project board — the workflow handles it.
 - Keep commits clean: one commit for tests, one for implementation (plus any fixups).
 - Security: do not introduce hardcoded secrets, SQL injection, XSS, or SSRF vulnerabilities.
@@ -219,27 +255,10 @@ def _run_tests() -> tuple[bool, str]:
 
 # ── Outcome handlers ──────────────────────────────────────────────────────────
 
-def _handle_success(ticket: dict, branch: str, meta: dict, col: dict):
+def _handle_success(ticket: dict, branch: str, pr_url: str, meta: dict, col: dict):
+    # Safety-net push in case the agent forgot to push its final commit.
     _git(["push", "origin", branch])
-
-    pr_result = subprocess.run(
-        [
-            "gh", "pr", "create",
-            "--title", f"#{ticket['issue_number']}: {ticket['title']}",
-            "--body", (
-                f"Closes #{ticket['issue_number']}\n\n"
-                f"Implemented by Worker Agent {WORKER_ID}.\n\n"
-                f"[View run logs]({ACTIONS_RUN_URL})"
-            ),
-            "--head", branch,
-            "--base", "main",
-        ],
-        cwd=TARGET_REPO_DIR,
-        text=True,
-        capture_output=True,
-        env={**os.environ, "GH_TOKEN": os.environ["GH_PROJECTS_TOKEN"]},
-    )
-    pr_url = pr_result.stdout.strip()
+    _mark_pr_ready(pr_url)
 
     move_item_to_column(ticket["item_id"], col["ready_for_review"], meta)
     remove_label(ticket["issue_number"], "agent:working")
@@ -248,13 +267,16 @@ def _handle_success(ticket: dict, branch: str, meta: dict, col: dict):
 
     add_comment(ticket["issue_number"], (
         f"{_AGENT_MARKER}\n"
-        f"**Implementation complete.** PR: {pr_url}\n\n"
+        f"**Implementation complete.** PR is ready for review: {pr_url}\n\n"
         f"Moved to **Ready for Review**."
     ))
-    print(f"  Worker {WORKER_ID}: Done — {pr_url}")
+    print(f"  Worker {WORKER_ID}: Done — {pr_url}", flush=True)
 
 
-def _handle_failure(ticket: dict, meta: dict, col: dict, reason: str):
+def _handle_failure(ticket: dict, pr_url: str, meta: dict, col: dict, reason: str):
+    # Push whatever partial commits exist so the draft PR shows the work done so far.
+    _git(["push", "origin", "--force-with-lease"], check=False)
+
     move_item_to_column(ticket["item_id"], col["blocked"], meta)
     remove_label(ticket["issue_number"], "agent:working")
     ensure_labels(["blocked:agent-stuck"])
@@ -263,10 +285,11 @@ def _handle_failure(ticket: dict, meta: dict, col: dict, reason: str):
     add_comment(ticket["issue_number"], (
         f"{_AGENT_MARKER}\n"
         f"**Worker agent stopped** — {reason}\n\n"
+        f"The draft PR ({pr_url}) shows partial work done so far.\n"
         f"Moved to **Blocked**. Human review needed.\n"
         f"[View run logs]({ACTIONS_RUN_URL})"
     ))
-    print(f"  Worker {WORKER_ID}: Failed — {reason}")
+    print(f"  Worker {WORKER_ID}: Failed — {reason}", flush=True)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -293,7 +316,7 @@ def main():
 
     ready = get_items_in_column(col["ready_for_agent"], meta)
     if not ready:
-        print(f"Worker {WORKER_ID}: No tickets ready.")
+        print(f"Worker {WORKER_ID}: No tickets ready.", flush=True)
         return
 
     # Try to claim the first unclaimed ticket.
@@ -304,47 +327,54 @@ def main():
             break
 
     if not ticket:
-        print(f"Worker {WORKER_ID}: Could not claim any ticket (all taken).")
+        print(f"Worker {WORKER_ID}: Could not claim any ticket (all taken).", flush=True)
         return
 
     n = ticket["issue_number"]
-    print(f"Worker {WORKER_ID}: Claimed #{n}: {ticket['title']}")
+    print(f"Worker {WORKER_ID}: Claimed #{n}: {ticket['title']}", flush=True)
 
-    # Create branch and post the claim comment.
+    # Create the branch (pushed to remote so the draft PR can be opened).
     branch = _create_branch(ticket)
+
+    # Open a draft PR immediately — partial commits will be visible here as the agent works.
+    print(f"  Opening draft PR...", flush=True)
+    pr_url = _open_draft_pr(ticket, branch)
+    print(f"  Draft PR: {pr_url}", flush=True)
+
     add_comment(n, (
         f"{_AGENT_MARKER}\n"
         f"Picked up by **Worker Agent {WORKER_ID}**.\n\n"
         f"- Branch: `{branch}`\n"
+        f"- Draft PR: {pr_url}\n"
         f"- [View run logs]({ACTIONS_RUN_URL})\n\n"
-        f"Working on: tests → implementation → PR."
+        f"Working on: tests → implementation → PR ready for review."
     ))
 
     # Determine budget from ticket size label.
     cfg = _size_config(ticket["labels"])
-    print(f"  Budget: {cfg['loc_budget']} LOC, {cfg['max_turns']} turns")
+    print(f"  Budget: {cfg['loc_budget']} LOC, {cfg['max_turns']} turns", flush=True)
 
     # Run the Claude Code agent.
-    print(f"  Running Claude Code (max_turns={cfg['max_turns']})...")
+    print(f"  Running Claude Code (max_turns={cfg['max_turns']})...", flush=True)
     agent_ok = _run_claude(_build_prompt(ticket, branch, cfg), cfg["max_turns"])
 
     # Evaluate outcome.
     if _agent_asked_for_help(n):
-        _handle_failure(ticket, meta, col, "Agent requested human help (see comments above).")
+        _handle_failure(ticket, pr_url, meta, col, "Agent requested human help (see comments above).")
         return
 
     if not agent_ok:
-        _handle_failure(ticket, meta, col, "Claude Code exited with a non-zero status.")
+        _handle_failure(ticket, pr_url, meta, col, "Claude Code exited with a non-zero status.")
         return
 
     if not _has_new_commits():
-        _handle_failure(ticket, meta, col, "Agent ran but produced no commits.")
+        _handle_failure(ticket, pr_url, meta, col, "Agent ran but produced no commits.")
         return
 
     loc = _loc_changed()
     if loc > cfg["loc_budget"] * 1.5:
         _handle_failure(
-            ticket, meta, col,
+            ticket, pr_url, meta, col,
             f"Change size ({loc} lines) is well above the budget ({cfg['loc_budget']} lines). "
             "Please review before merging.",
         )
@@ -358,10 +388,10 @@ def main():
             f"**Test suite failed** after implementation. Output (last 3 000 chars):\n\n"
             f"```\n{test_output}\n```"
         ))
-        _handle_failure(ticket, meta, col, "Test suite failed after implementation.")
+        _handle_failure(ticket, pr_url, meta, col, "Test suite failed after implementation.")
         return
 
-    _handle_success(ticket, branch, meta, col)
+    _handle_success(ticket, branch, pr_url, meta, col)
 
 
 if __name__ == "__main__":

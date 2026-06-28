@@ -241,13 +241,21 @@ Situations that require calling for help:
 # ── Run Claude Code ───────────────────────────────────────────────────────────
 
 def _run_claude(prompt: str, max_turns: int) -> bool:
-    """Invoke Claude Code non-interactively. Returns True on exit code 0."""
+    """Invoke Claude Code non-interactively. Returns True on exit code 0.
+
+    --output-format stream-json emits each tool call and response as a JSON
+    line in real time, making the agent's full activity visible in the
+    Actions log rather than only printing the final response at the end.
+    --verbose adds extra detail (input/output for each tool use).
+    """
     result = subprocess.run(
         [
             "claude",
             "-p",
             "--dangerously-skip-permissions",
             "--max-turns", str(max_turns),
+            "--output-format", "stream-json",
+            "--verbose",
         ],
         input=prompt,
         cwd=TARGET_REPO_DIR,

@@ -4,10 +4,10 @@
 import os
 import re
 import subprocess
-import sys
 import time
 import random
 
+from anthropic import Anthropic, APIStatusError
 from github_client import (
     REPO_OWNER, REPO_NAME,
     ensure_labels, add_issue_label, remove_label,
@@ -93,23 +93,41 @@ def _claim(item: dict, meta: dict, col: dict) -> bool:
     return True
 
 
-# ── Draft PR helpers ──────────────────────────────────────────────────────────
+# ── gh CLI helpers ────────────────────────────────────────────────────────────
 
-def _gh(args: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(
+def _gh(args: list[str], check: bool = False) -> subprocess.CompletedProcess:
+    result = subprocess.run(
         ["gh"] + args,
         cwd=TARGET_REPO_DIR,
         text=True,
         capture_output=True,
         env={**os.environ, "GH_TOKEN": os.environ["GH_PROJECTS_TOKEN"]},
     )
+    if result.returncode != 0:
+        print(f"  gh {args[0]} {args[1]} failed (exit {result.returncode}):", flush=True)
+        print(f"  stderr: {result.stderr.strip()}", flush=True)
+        if check:
+            raise RuntimeError(f"gh command failed: {result.stderr.strip()}")
+    return result
+
+
+def _default_branch() -> str:
+    """Ask GitHub for the repo's default branch rather than assuming 'main'."""
+    result = _gh([
+        "repo", "view", f"{REPO_OWNER}/{REPO_NAME}",
+        "--json", "defaultBranchRef",
+        "--jq", ".defaultBranchRef.name",
+    ])
+    return result.stdout.strip() or "main"
 
 
 def _open_draft_pr(ticket: dict, branch: str) -> str:
-    """Open a draft PR immediately so partial work is visible. Returns the PR URL."""
+    """Open a draft PR immediately so partial work is visible. Returns the PR URL or ''."""
+    base = _default_branch()
     result = _gh([
         "pr", "create",
         "--draft",
+        "--repo", f"{REPO_OWNER}/{REPO_NAME}",
         "--title", f"#{ticket['issue_number']}: {ticket['title']}",
         "--body", (
             f"Closes #{ticket['issue_number']}\n\n"
@@ -117,14 +135,33 @@ def _open_draft_pr(ticket: dict, branch: str) -> str:
             f"[View run logs]({ACTIONS_RUN_URL})"
         ),
         "--head", branch,
-        "--base", "main",
+        "--base", base,
     ])
     return result.stdout.strip()
 
 
 def _mark_pr_ready(pr_url: str):
     """Promote a draft PR to ready-for-review."""
-    _gh(["pr", "ready", pr_url])
+    _gh(["pr", "ready", "--repo", f"{REPO_OWNER}/{REPO_NAME}", pr_url])
+
+
+# ── Anthropic API pre-flight ──────────────────────────────────────────────────
+
+def _check_api_credits() -> bool:
+    """Make a minimal API call to verify credits are available before running the agent."""
+    try:
+        Anthropic().messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1,
+            messages=[{"role": "user", "content": "hi"}],
+        )
+        return True
+    except APIStatusError as e:
+        print(f"  Anthropic API error ({e.status_code}): {e.message}", flush=True)
+        return False
+    except Exception as e:
+        print(f"  Anthropic API unreachable: {e}", flush=True)
+        return False
 
 
 # ── Agent prompt ──────────────────────────────────────────────────────────────
@@ -282,10 +319,11 @@ def _handle_failure(ticket: dict, pr_url: str, meta: dict, col: dict, reason: st
     ensure_labels(["blocked:agent-stuck"])
     add_issue_label(ticket["issue_number"], "blocked:agent-stuck")
 
+    pr_line = f"Draft PR with partial work: {pr_url}\n" if pr_url else ""
     add_comment(ticket["issue_number"], (
         f"{_AGENT_MARKER}\n"
         f"**Worker agent stopped** — {reason}\n\n"
-        f"The draft PR ({pr_url}) shows partial work done so far.\n"
+        f"{pr_line}"
         f"Moved to **Blocked**. Human review needed.\n"
         f"[View run logs]({ACTIONS_RUN_URL})"
     ))
@@ -353,6 +391,13 @@ def main():
     # Determine budget from ticket size label.
     cfg = _size_config(ticket["labels"])
     print(f"  Budget: {cfg['loc_budget']} LOC, {cfg['max_turns']} turns", flush=True)
+
+    # Verify Anthropic API is accessible before spending a turn on the agent.
+    print(f"  Checking Anthropic API...", flush=True)
+    if not _check_api_credits():
+        _handle_failure(ticket, pr_url, meta, col,
+                        "Anthropic API is not accessible — check API key and credit balance at console.anthropic.com.")
+        return
 
     # Run the Claude Code agent.
     print(f"  Running Claude Code (max_turns={cfg['max_turns']})...", flush=True)

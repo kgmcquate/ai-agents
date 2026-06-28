@@ -51,11 +51,24 @@ def _git(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
     )
 
 
-def _create_branch(ticket: dict) -> str:
+def _setup_branch(ticket: dict) -> str:
+    """Create the feature branch, or resume it if a previous run already pushed it."""
     slug = re.sub(r"[^a-z0-9]+", "-", ticket["title"].lower())[:40].strip("-")
     branch = f"agent/issue-{ticket['issue_number']}-{slug}"
-    _git(["checkout", "-b", branch])
-    _git(["push", "-u", "origin", branch])
+
+    exists_on_remote = _git(
+        ["ls-remote", "--exit-code", "--heads", "origin", branch], check=False
+    ).returncode == 0
+
+    if exists_on_remote:
+        print(f"  Resuming existing branch: {branch}", flush=True)
+        _git(["fetch", "origin", branch])
+        _git(["checkout", "-B", branch, f"origin/{branch}"])
+    else:
+        print(f"  Creating new branch: {branch}", flush=True)
+        _git(["checkout", "-b", branch])
+        _git(["push", "-u", "origin", branch])
+
     return branch
 
 
@@ -149,8 +162,26 @@ def _check_api_credits() -> bool:
 
 # ── Agent prompt ──────────────────────────────────────────────────────────────
 
-def _build_prompt(ticket: dict, branch: str, cfg: dict) -> str:
+def _format_comments(comments: list[dict]) -> str:
+    """Format issue comments for inclusion in the agent prompt."""
+    if not comments:
+        return ""
+    lines = ["## Issue comment history\n"]
+    for c in comments:
+        author = c.get("user", {}).get("login", "unknown")
+        date = c.get("created_at", "")[:10]
+        body = c.get("body", "").strip()
+        lines.append(f"**{author}** ({date}):\n{body}\n")
+    text = "\n".join(lines)
+    # Cap at 8 000 chars to avoid blowing the context window on verbose threads.
+    if len(text) > 8000:
+        text = text[:8000] + "\n\n_(comment history truncated)_"
+    return "\n" + text
+
+
+def _build_prompt(ticket: dict, branch: str, cfg: dict, comments: list[dict]) -> str:
     labels_str = ", ".join(ticket["labels"]) or "none"
+    comments_section = _format_comments(comments)
     return f"""You are a software engineering agent implementing a GitHub issue for the repository \
 {REPO_OWNER}/{REPO_NAME}.
 
@@ -162,6 +193,7 @@ Labels: {labels_str}
 
 Description:
 {ticket['body'] or '(no description provided)'}
+{comments_section}
 
 ## Workflow — follow these steps in order
 
@@ -368,8 +400,9 @@ def main():
     n = ticket["issue_number"]
     print(f"Worker {WORKER_ID}: Claimed #{n}: {ticket['title']}", flush=True)
 
-    # Create the branch and push it so the agent can commit to it immediately.
-    branch = _create_branch(ticket)
+    # Create or resume the feature branch.
+    branch = _setup_branch(ticket)
+    pr_url = ""  # will be set after the agent opens the draft PR
 
     add_comment(n, (
         f"{_AGENT_MARKER}\n"
@@ -390,9 +423,12 @@ def main():
                         "Anthropic API is not accessible — check API key and credit balance at console.anthropic.com.")
         return
 
+    # Fetch all issue comments so the agent has full context (Q&A, previous attempts, etc.).
+    comments = get_comments(n)
+
     # Run the Claude Code agent.
     print(f"  Running Claude Code (max_turns={cfg['max_turns']})...", flush=True)
-    agent_ok = _run_claude(_build_prompt(ticket, branch, cfg), cfg["max_turns"])
+    agent_ok = _run_claude(_build_prompt(ticket, branch, cfg, comments), cfg["max_turns"])
 
     # Retrieve the draft PR URL the agent opened (may be empty if it stopped before that step).
     pr_url = _find_pr_url(branch)

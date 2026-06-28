@@ -72,9 +72,25 @@ def _setup_branch(ticket: dict) -> str:
     return branch
 
 
+def _base_ref() -> str:
+    """Return the remote ref for the default branch.
+
+    actions/checkout does not set origin/HEAD as a symbolic ref, so we cannot
+    rely on it. Try the two common names first, then fall back to asking git.
+    """
+    for ref in ("origin/main", "origin/master"):
+        if _git(["rev-parse", "--verify", ref], check=False).returncode == 0:
+            return ref
+    # Last resort: read the symbolic ref if it happens to be set.
+    result = _git(["symbolic-ref", "refs/remotes/origin/HEAD"], check=False)
+    if result.returncode == 0:
+        return result.stdout.strip().removeprefix("refs/remotes/")
+    return "origin/main"
+
+
 def _loc_changed() -> int:
-    """Return total lines added + removed since branching from the default branch."""
-    result = _git(["diff", "origin/HEAD", "--shortstat"], check=False)
+    """Return total lines added + removed relative to the default branch."""
+    result = _git(["diff", _base_ref(), "--shortstat"], check=False)
     if not result.stdout:
         return 0
     # "3 files changed, 42 insertions(+), 7 deletions(-)"
@@ -83,7 +99,7 @@ def _loc_changed() -> int:
 
 
 def _has_new_commits() -> bool:
-    result = _git(["log", "origin/HEAD..HEAD", "--oneline"], check=False)
+    result = _git(["log", f"{_base_ref()}..HEAD", "--oneline"], check=False)
     return bool(result.stdout.strip())
 
 
